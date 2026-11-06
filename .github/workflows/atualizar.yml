@@ -1,0 +1,50 @@
+name: Atualizar cotações B3
+
+on:
+  schedule:
+    # 22:13 e 06:47 (horário de Brasília), seg-sáb em UTC
+    - cron: "13 1 * * 2-6"
+    - cron: "47 9 * * 1-6"
+  workflow_dispatch:
+    inputs:
+      ano:
+        description: "Carga histórica de um ano (ex.: 2025). Vazio = rotina diária"
+        required: false
+  push:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atualizar
+  cancel-in-progress: false
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Rodar script
+        run: |
+          if [ -n "${{ github.event.inputs.ano }}" ]; then
+            python scripts/atualizar.py --ano "${{ github.event.inputs.ano }}"
+          else
+            python scripts/atualizar.py
+          fi
+      - name: Commit
+        if: always()
+        run: |
+          git config user.name "cotacoes-bot"
+          git config user.email "actions@github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Cotações $(date -u +%F)"
+          git pull --rebase
+          git push
