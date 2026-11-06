@@ -2,7 +2,7 @@
 
 Saídas:
   data/ultimo.csv                 -> último pregão completo (à vista + opções)
-  data/historico/vista_AAAA.csv   -> histórico do mercado à vista (lote padrão)
+  data/historico/AAAA/vista_AAAA-MM.csv -> histórico mensal do mercado à vista
   data/status.json                -> resultado da última execução
 
 Uso:
@@ -70,36 +70,51 @@ def parse_linha(l):
     }
 
 
-def baixar(nome):
-    r = requests.get(BASE + nome, headers=UA, timeout=180)
+def baixar(nome, so_vista=False):
+    r = requests.get(BASE + nome, headers=UA, timeout=600)
     if r.status_code == 404:
         return None
     r.raise_for_status()
     if r.content[:2] != b"PK":  # B3 devolve HTML quando o arquivo não existe
         return None
     z = zipfile.ZipFile(io.BytesIO(r.content))
-    txt = z.read(z.namelist()[0]).decode("latin-1")
-    return [x for x in (parse_linha(l) for l in txt.splitlines()) if x]
+    out = []
+    with z.open(z.namelist()[0]) as f:
+        for raw in io.TextIOWrapper(f, encoding="latin-1"):
+            if so_vista and raw[24:27] != "010":
+                continue
+            x = parse_linha(raw)
+            if x:
+                out.append(x)
+    return out
 
 
-def gravar_hist(linhas, ano):
-    os.makedirs(HIST, exist_ok=True)
-    caminho = os.path.join(HIST, f"vista_{ano}.csv")
-    existentes = []
-    if os.path.exists(caminho):
-        with open(caminho, newline="", encoding="utf-8") as f:
-            existentes = list(csv.DictReader(f))
-    datas_novas = {l["data"] for l in linhas}
-    existentes = [e for e in existentes if e["data"] not in datas_novas]
-    todas = existentes + [l for l in linhas if l["mercado"] == "vista"]
-    todas.sort(key=lambda x: (x["data"], x["ticker"]))
-    with open(caminho, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CAMPOS)
-        w.writeheader()
-        w.writerows(todas)
+def gravar_hist(linhas):
+    """Histórico à vista em arquivos mensais: data/historico/AAAA/vista_AAAA-MM.csv"""
+    por_mes = {}
+    for l in linhas:
+        if l["mercado"] == "vista":
+            por_mes.setdefault(l["data"][:7], []).append(l)
+    for mes, novas in por_mes.items():
+        pasta = os.path.join(HIST, mes[:4])
+        os.makedirs(pasta, exist_ok=True)
+        caminho = os.path.join(pasta, f"vista_{mes}.csv")
+        existentes = []
+        if os.path.exists(caminho):
+            with open(caminho, newline="", encoding="utf-8") as f:
+                existentes = list(csv.DictReader(f))
+        datas_novas = {l["data"] for l in novas}
+        todas = [e for e in existentes if e["data"] not in datas_novas] + novas
+        todas.sort(key=lambda x: (x["data"], x["ticker"]))
+        with open(caminho, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=CAMPOS)
+            w.writeheader()
+            w.writerows(todas)
 
 
 def gravar_ultimo(linhas):
+    # opções só entram se tiveram negócio no dia
+    linhas = [l for l in linhas if l["mercado"] == "vista" or l["negocios"] > 0]
     linhas = sorted(linhas, key=lambda x: (x["mercado"], x["ticker"]))
     with open(os.path.join(DATA, "ultimo.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=CAMPOS)
@@ -132,7 +147,7 @@ def diario():
             try:
                 linhas = baixar(f"COTAHIST_D{d:%d%m%Y}.ZIP")
                 if linhas:
-                    gravar_hist(linhas, d.year)
+                    gravar_hist(linhas)
                     gravar_ultimo(linhas)
                     st["ultimo_pregao"] = d.isoformat()
                     st["linhas_ultimo"] = len(linhas)
@@ -148,10 +163,10 @@ def diario():
 
 
 def anual(ano):
-    linhas = baixar(f"COTAHIST_A{ano}.ZIP")
+    linhas = baixar(f"COTAHIST_A{ano}.ZIP", so_vista=True)
     if not linhas:
         sys.exit(f"Arquivo anual {ano} não encontrado")
-    gravar_hist(linhas, ano)
+    gravar_hist(linhas)
     st = ler_status()
     st.setdefault("anos_carregados", [])
     if ano not in st["anos_carregados"]:
@@ -164,6 +179,18 @@ def anual(ano):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--ano", type=int)
+    p.add_argument("--pendentes", action="store_true",
+                   help="processa os anos listados em carga_pendente.txt e apaga o arquivo")
     a = p.parse_args()
     os.makedirs(DATA, exist_ok=True)
-    anual(a.ano) if a.ano else diario()
+    if a.pendentes:
+        arq = os.path.join(RAIZ, "carga_pendente.txt")
+        if os.path.exists(arq):
+            anos = [int(x) for x in open(arq).read().split() if x.strip()]
+            for ano in anos:
+                anual(ano)
+            os.remove(arq)
+    elif a.ano:
+        anual(a.ano)
+    else:
+        diario()
