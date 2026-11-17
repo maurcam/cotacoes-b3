@@ -1,8 +1,10 @@
 {
-  "ultimo_pregao": "2026-11-13",
-  "linhas_ultimo": 14646,
-  "execucao": "2026-11-16T16:52:04-03:00",
-  "processados_nesta_execucao": [],
+  "ultimo_pregao": "2026-11-16",
+  "linhas_ultimo": 15455,
+  "execucao": "2026-11-17T06:11:08-03:00",
+  "processados_nesta_execucao": [
+    "2026-11-16"
+  ],
   "erros": [],
   "anos_carregados": [
     2020,
