@@ -1,10 +1,8 @@
 {
   "ultimo_pregao": "2026-11-23",
   "linhas_ultimo": 12521,
-  "execucao": "2026-11-24T07:53:42-03:00",
-  "processados_nesta_execucao": [
-    "2026-11-23"
-  ],
+  "execucao": "2026-11-24T17:20:47-03:00",
+  "processados_nesta_execucao": [],
   "erros": [],
   "anos_carregados": [
     2020,
